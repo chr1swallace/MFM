@@ -9,7 +9,7 @@ p.fn <- function(x,n,v) dbinom(x,size=n,prob=v/n,log=TRUE)
 #' @title Kappa selection
 #' @param Nd Number of diseases to fine-map
 #' @param Ps2 Probability of any shared causal variant between a disease pair
-#' @param n Number of SNPs in region
+#' @param nsnps Number of SNPs in region
 #' @return Optimal kappa value
 #' @export
 kappaOpt <-function(Nd,Ps2,nsnps) {
@@ -58,5 +58,7 @@ calckappa <- function(nsnps,p,ndis,target.odds) {
     ## k <- seq(1,10,by=0.1)
     ## o <- sapply(k,odds_sharing,p=prob)
     ## plot(k,o,type="b")
-    optimize(f, c(1,1000))$minimum
+    out <- optimize(f, c(1,900000))$minimum
+    if(900000-out<0.5) warning("Optimizing kappa near boundary, maximum value 900,000")	
+    return(out)
 }

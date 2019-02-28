@@ -1,1 +1,5 @@
+^\.travis\.yml$
+^Meta$
+^doc$
+^README\.Rmd$
 dev

@@ -4,7 +4,8 @@
 \alias{marginalpp}
 \title{Marginal PP for models sharing information between diseases}
 \usage{
-marginalpp(STR, ABF, PP, pr, kappa, p0, tol = 1e-04, N0, ND, nsnps)
+marginalpp(STR, ABF, pr, kappa, p0, N0, ND, nsnps, I0 = as.list(rep(0,
+  length(ND))))
 }
 \arguments{
 \item{STR}{list of models for diseases 1, 2, ..., n, each given in
@@ -14,9 +15,6 @@ the form of a character vector, with entries
 ABF, PP and pr below follow this same order.}
 
 \item{ABF}{list of log(ABF) vectors for diseases 1, 2, ...}
-
-\item{PP}{list of posterior probability vectors for diseases 1, 2,
-...}
 
 \item{pr}{list of prior probabilities for the models in M}
 
@@ -29,17 +27,19 @@ included, and if not will be prepended.}
 \item{N0}{number of shared controls}
 
 \item{ND}{list of number of cases for a set of diseases}
+
+\item{nsnps}{number of snps in region}
+
+\item{I0}{list of number of controls for a set of diseases that are only used as controls for a specific disease (ie not shared)
+...}
 }
 \value{
 list of: - single.pp: list of pp for each model in
-STR[[i]] for disease i - shared.pp: list of pp for each model
-in STR[[i]] for disease i, - STR: not quite as input,
+\code{STR[[i]]} for disease i - shared.pp: list of pp for each model
+in \code{STR[[i]]} for disease i, - STR: not quite as input,
 reordered so null model is first row - ABF: not quite as
 input, repordered so null model is first row - kappa: as
 supplied
-
-[[i]: R:[i
-[[i]: R:[i
 }
 \description{
 Calculate marginal model posterior probabilities for each disease

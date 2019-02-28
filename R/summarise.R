@@ -1,41 +1,105 @@
+#' @title internal function for MPP.fn
+#' @param k index 
+#' @param msep output from sep.fn
+#' @param out storage vector for output
+#' @param gnames SNP group names
+#' @author Jenn Asimit
+check.fn <- function(k,msep,out,gnames) {
+     g <- length(gnames)
+     p1 <- numeric(g) 
+     for(j in 1:g) { 
+     ind1 <- gnames[j] %in% msep[[k]]
+     if(ind1) p1[j] <- out[k] 
+     }
+     return(p1)
+    	}
+
+#' @title internal function for MPP.fn
+#' @param k index
+#' @param mnames model names
+#' @author Jenn Asimit
+sep.fn <- function(k,mnames) {
+#' called by MPP.fn
+   msep <- unlist(strsplit(as.character(mnames[k]),"%"))
+   return(msep)
+   }
+
+####
+
+#' @title Find marginal PP of inclusion for SNPs (MPPi) in marginal models at each kappa value
+#' @param PP1 is a matrix of marginal model PP for a trait (i.e. one list component of output from sharedmPP.fn),
+#' @return a matrix of MPPi, where rows are SNPs and columns are kappa
+#' @export
+#' @author Jenn Asimit
+MPP.fn<-function(PP1) {
+ mnames <- rownames(PP1) 
+  msep <- apply(matrix(1:length(mnames),ncol=1),1,sep.fn,mnames)
+  gnames <- unique(unlist(msep)) # snps     
+   mpp1 <- NULL
+   for(k in 1:dim(PP1)[2]) {
+    tmp1 <- apply(matrix(1:length(mnames),ncol=1),1,check.fn,msep,PP1[,k],gnames)  
+    mpp1 <- rbind(mpp1,apply(tmp1,1,sum) )
+    }    
+   mpp1 <- data.frame(mpp1,row.names=colnames(PP1))  
+   names(mpp1)<-gnames    
+return(t(mpp1))
+}
+
+
 #' @title Marginal PP for models of a set of diseases, sharing information between the diseases
 #' @param SM2 List of snpmod objects for a set of diseases
 #' @param dis Vector of diseases for fine-mapping (subset from those in SM2)
 #' @param thr Threshold such that the smallest set of models has cumulative PP >= thr
-#' @param kappa Vector of sharing values
+#' @param TOdds Vector of target odds of no sharing to sharing
+#'	...
 #' @param N0 number of shared controls
 #' @param ND list of number of cases for a set of diseases
+#' @param nsnps number of SNPs in the region
 #' @return List consisting of PP: marginal PP for models and MPP: marginal PP of SNP inclusion
 #' @export
-PPmarginal.multiple.fn <- function(SM2,dis,thr,kappa,tol=0.0001,N0,ND) {
-
-traits <- paste(dis,collapse="-")
-  
-  bestmod.thr <- best.models(SM2[dis],cpp.thr=thr) 
-  M <- lapply(bestmod.thr, "[[", "str") 
-  pr <- lapply(bestmod.thr, "[[", "prior") 
-  abf <- lapply(bestmod.thr, "[[", "logABF") 
-  PP <- lapply(bestmod.thr, "[[", "PP") 
-  p0 <- snpprior(n=nsnps,expected=2)["0"] 
-   
-  STR=M[dis] 
-  ABF=abf[dis] 
-  PP <- PP[dis] 
-  pr=pr[dis]
-  ND=ND[dis]
-  message("\n\nCPP threshold = ",thr, "\n\tn.each (",paste(dis,collapse="/"),") = ",paste(sapply(M[dis],length),collapse="/")) 
-  ret <- marginalpp(STR,ABF,PP,pr,kappa,p0,tol,N0,ND) 
-  pp <- ret$shared.pp
-  mpp <- lapply(pp,MPP.fn)
-  names(pp) <- dis
-  
-  
- MPP <- lapply(mpp,t)
- K <- length(dis)
-for(k in 2:K) MPP <- smartbind(MPP, t(mpp[[k]]),fill=0)
-
-return(list(PP=pp,MPP=MPP))
+#' @author Jenn Asimit
+PPmarginal.multiple.fn <- function (SM2, dis, thr, TOdds, N0, ND,nsnps) 
+{
+	nd <- length(dis)    	
+	kappas <- c()
+	for(j in 1:length(TOdds)) kappas <- c(kappas,calckappa(nsnps=nsnps,p=2/nsnps,ndis=nd,target.odds=TOdds[j]))
+    traits <- paste(dis, collapse = "-")
+    bestmod.thr <- best.models(SM2[dis], cpp.thr = thr)
+    M <- lapply(bestmod.thr, "[[", "str")
+    pr <- lapply(bestmod.thr, "[[", "prior")
+    abf <- lapply(bestmod.thr, "[[", "logABF")
+    PP <- lapply(bestmod.thr, "[[", "PP")
+    p0 <- snpprior(n = nsnps, expected = 2)["0"]
+    STR = M[dis]
+    ABF = abf[dis]
+    PP <- PP[dis]
+    pr = pr[dis]
+    ND = ND[dis]
+    message("\n\nCPP threshold = ", thr, "\n\tn.each (", paste(dis, 
+        collapse = "/"), ") = ", paste(sapply(M[dis], length), 
+        collapse = "/"))
+    pp <- vector("list",length=nd) 
+    #mpp <- vector("list",length=nd)  
+       
+     for(kappa in kappas) {
+     ret <- marginalpp(STR, ABF, pr, kappa, p0, N0, ND,nsnps)    
+     for(i in 1:nd) pp[[i]] <- cbind(pp[[i]],ret[[i]]$shared.pp)
+     } 
+      for(i in 1:nd) {
+       pp[[i]] <- cbind(ret[[i]]$single.pp/sum(ret[[i]]$single.pp),pp[[i]])
+       colnames(pp[[i]]) <- paste("pp",c("null",round(TOdds,2)),sep=".")
+       rownames(pp[[i]]) <- rownames(ret[[i]])
+     #  mpp[[i]] <- lapply(pp[[i]], MPP.fn)
+       }
+    mpp <- lapply(pp, MPP.fn)
+    names(pp) <- dis
+    mpp1 <- lapply(mpp, t)
+    K <- length(dis)
+    MPP <- mpp1[[1]] 
+    for (k in 2:K) MPP <- smartbind(MPP, mpp1[[k]], fill = 0)
+    return(list(PP = pp, MPP = MPP))
 }
+
 
 #' @title Approximate (fast) marginal PP for models of a set of diseases, sharing information between the diseases
 #' @param SM2 List of snpmod objects for a set of diseases
@@ -45,9 +109,11 @@ return(list(PP=pp,MPP=MPP))
 #' @param fthr Second level filtering on all but first disease to give a faster approximation; retain SNPs within the smallest set of models such that cumulative PP >= thr
 #' @param N0 number of shared controls
 #' @param ND list of number of cases for a set of diseases
+#' @param nsnps Number of SNPs in region
 #' @return List consisting of PP: marginal PP for models and MPP: marginal PP of SNP inclusion
 #' @export
-PPmarginal.multiple.fast.fn <- function(SM2,dis,thr,kappa,tol=0.0001,fthr,N0,ND) {
+#' @author Jenn Asimit
+PPmarginal.multiple.fast.fn <- function(SM2,dis,thr,kappa,fthr,N0,ND,nsnps) {
 
 traits <- paste(dis,collapse="-")
   
@@ -74,7 +140,7 @@ traits <- paste(dis,collapse="-")
   pr=pr[dis]
   ND=ND[dis]
   message("\n\nCPP threshold = ",thr, "\n\tn.each (",paste(dis,collapse="/"),") = ",paste(sapply(M[dis],length),collapse="/")) 
-  ret <- marginalone(STR,ABF,PP,pr,kappa,p0,tol, fthr=fthr,N0,ND) # need to have each trait as 1st
+  ret <- marginalone(STR,ABF,PP,pr,kappa,p0, fthr=fthr,N0,ND) # need to have each trait as 1st
   pp[[j]] <- ret$shared.pp
   rownames(pp[[j]]) <- ret$STR
   colnames(pp[[j]]) <- paste("pp",kappa,sep=".")
@@ -107,6 +173,7 @@ pp.filter.fn <- function(pp,pthr) {
 #' @param pthr Threshold for keeping probabilities from SNPs/models that are greater than pthr for at least one kappa value
 #' @return Matrix of probabilites that are plotted (only SNPs/models with MPP/PP > pthr at some kappa value are retained)
 #' @export
+#' @author Jenn Asimit
 PP.plot.fn <- function(pp,pthr) { 
  if(!is.na(pthr)) pp1 <- pp.filter.fn(pp,pthr=pthr)
  m <- dim(pp1)[1]
@@ -150,19 +217,21 @@ make.snp.groups.fn <- function(groups,rdis,mppi.thr=.05) {
 
 
 #' @title Summarise, for a set of diseases, posterior probabilities and marginal posterior probabilities by SNP groups
-#' @param MPP Matrix of marginal probabilities for a set of diseases and kappa values; output from MPP.fn
-#' @param pp List consisting of posterior probability matrices for each disease; output from PP.fn 
+#' @param MPP Matrix of marginal probabilities for a set of diseases and kappa values; output as MPP from PPmarginal.multiple.fn
+#' @param pp List consisting of posterior probability matrices for each disease; output as PP from PPmarginal.multiple.fn 
 #' @param dis Vector of disease names
 #' @param shared Vector of kappa values
+#' @param snpGroups List of SNP groups for region
 #' @return List consisting of mppGS: matrix of marginal probabilities by SNP groups; gPP: list of PP matrices by SNP groups
 #' @export
+#' @author Jenn Asimit
 MPP.PP.groups.fn <- function(MPP,pp,dis,shared,snpGroups) {
  K <- length(dis)
 alltraits <- dis
 
 G <- character(length(colnames(MPP)))
 ind <- which(colnames(MPP)=="1")
-if(length(ind)>0) colnames(MPP)[ind] <- "m0.0.0.0"
+if(length(ind)>0) colnames(MPP)[ind] <- "m0"
 for(k in 1:length(colnames(MPP))) {
 check <- names(snpGroups)[grep(colnames(MPP)[k],snpGroups)];#print(c(k,colnames(MPP)[k],check))
 if(length(check)!=0) {
@@ -180,16 +249,13 @@ notinG <- setdiff(notinG,"m0")
 if(length(notinG)>0) {
 mppS <- matrix(0,ncol=length(notinG),nrow=dim(MPP)[1],dimnames=list(rownames(MPP),notinG))
 for(k in 1:length(notinG)) mppS[,k] <- apply(as.matrix(MPP[,which(G==notinG[k])]),1,sum)
-##colnames(mppS) <- unlist(strsplit(colnames(mppS),"[.]"))[c(TRUE,FALSE,FALSE,FALSE)]
 mppGS <- cbind(mppG,mppS)
 }
-##rownames(mppGS) <- c(paste(alltraits[1],shared,sep="."),paste(alltraits[2],shared,sep="."),paste(alltraits[3],shared,sep="."))
 rownames(mppGS) <- paste(rep(alltraits,each=length(shared)),shared,sep=".")
 
 
 gPP <- vector("list",K)
 cmpp <- colnames(MPP)
-tmp <- unlist(strsplit(cmpp,"[.]"))[c(TRUE,FALSE,FALSE,FALSE)] 
 
 # mppGS output
 # find pp and pp by group
@@ -197,36 +263,35 @@ tmp <- unlist(strsplit(cmpp,"[.]"))[c(TRUE,FALSE,FALSE,FALSE)]
 PPmarg <- pp
 for(k in 1:K) {
 ind <- which(rownames(PPmarg[[k]])=="1")
-if(length(ind)>0) rownames(PPmarg[[k]])[ind] <- "m0.0.0.0"
-PPmarg[[k]] <- rbind(PPmarg[[k]][grep("m0.0.0.0",rownames(PPmarg[[k]])),] ,PPmarg[[k]][grep("rs",rownames(PPmarg[[k]])),])
-rownames(PPmarg[[k]])[1] <- "null.0.0.0"
-tmp <- rownames(PPmarg[[k]])
-rn <- character(length(tmp))
-Grn <- character(length(tmp))
-for(l in 1:length(tmp)) {
- tmp1 <- unlist(strsplit(tmp[l],"%"))
- sp <- unlist(strsplit(tmp1,"[.]"))[c(TRUE,FALSE,FALSE,FALSE)] 
- rn[l] <- paste(sp,collapse=".")
- 
- gg <- NULL
- for(ll in 1:length(sp)) gg<- c(gg,G[grep(sp[ll],colnames(MPP))]) 
- Grn[l] <- paste(gg[order(gg)],collapse=".")
- }
- 
-rownames(PPmarg[[k]]) <- rn
+if (length(ind) > 0) {
+            rownames(PPmarg[[k]])[ind] <- "null"
+        }
+	tmp <- rownames(PPmarg[[k]])
+        rn <- character(length(tmp))
+        Grn <- character(length(tmp))
+        for (l in 1:length(tmp)) {
+            tmp1 <- unlist(strsplit(tmp[l], "%"))
+			rn[l] <- tmp[l]
+            gg <- NULL
+            for (ll in 1:length(tmp1)) gg <- c(gg, G[grep(tmp1[ll],colnames(MPP))])
+            Grn[l] <- paste(gg[order(gg)], collapse = ".")	
+            if(Grn[l] == "") Grn[l] <- "null"
+        }
+        rownames(PPmarg[[k]]) <- rn
+        gPPmarg <- PPmarg[[k]]
+        mods <- unique(Grn)
+        nm <- length(mods)
+        gPP[[k]] <- matrix(0, ncol = length(shared), nrow = nm,
+            dimnames = list(mods, shared))
+        for (mm in 1:nm) {
+         mat <- as.matrix(gPPmarg[Grn == mods[mm], ], ncol = length(shared), byrow = FALSE)
+         if(dim(mat)[2]==1) {
+                gPP[[k]][mm, ] <- as.vector(mat)
+                } else { gPP[[k]][mm, ] <- apply(mat, 2, sum) }
+         }
+    }
+    return(list(mppGS = mppGS, gPP = gPP))
 
- 
- gPPmarg <- PPmarg[[k]]
- rownames(gPPmarg) <- Grn
-
- 
- mods <- unique(rownames(gPPmarg))
- nm <- length(mods)
- gPP[[k]] <- matrix(0,ncol=length(shared),nrow=nm,dimnames=list(mods,shared))
- for(mm in 1:nm)  gPP[[k]][mm,] <- apply(matrix(gPPmarg[Grn==mods[mm],],ncol=length(shared),byrow=FALSE),2,sum)
-}
-
-return(list(mppGS=mppGS,gPP=gPP))
 }
 
 
